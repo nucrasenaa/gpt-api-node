@@ -73,7 +73,14 @@ test("ChatGPT payload builder shapes provider-neutral messages without thread re
     messages: [{ role: "user", content: "hello" }],
     metadata: { history_and_training_disabled: true, system_hints: ["hint-a"] },
   }, {
-    capturedRequestJson: { model: "captured-model", parent_message_id: "captured-parent", timezone: "captured/zone" },
+    capturedRequestJson: {
+      model: "captured-model",
+      parent_message_id: "captured-parent",
+      timezone: "captured/zone",
+      browser_context: { instance_id: "browser-123" },
+      local_function_names: ["local.continue_in_work"],
+      turn_attribution: { turn_trigger: "composer" },
+    },
     timezoneOffsetMinutes: -420,
     timezone: "Asia/Bangkok",
     idFactory: () => "message-1",
@@ -86,6 +93,10 @@ test("ChatGPT payload builder shapes provider-neutral messages without thread re
   assert.deepEqual(payload.messages, [messageToChatGPT({ role: "user", content: "hello" }, () => "message-1", () => 1_000)]);
   assert.equal(payload.history_and_training_disabled, true);
   assert.deepEqual(payload.system_hints, ["hint-a"]);
+  assert.deepEqual(payload.browser_context, { instance_id: "browser-123" });
+  assert.deepEqual(payload.local_function_names, ["local.continue_in_work"]);
+  assert.deepEqual(payload.turn_attribution, { turn_trigger: "composer" });
+  assert.equal("captured-parent" in payload, false);
 });
 
 test("prepare and header helpers match the ChatGPT protocol boundary", () => {

@@ -95,6 +95,7 @@ export function buildChatGPTPayload(
   const now = options.now ?? Date.now;
   const action = request.action ?? "next";
   const payload: Record<string, unknown> = {
+    ...template,
     action,
     model: request.model ?? (typeof template.model === "string" ? template.model : "auto"),
     timezone_offset_min: options.timezoneOffsetMinutes ?? timezone.timezone_offset_min,
@@ -107,6 +108,13 @@ export function buildChatGPTPayload(
     paragen_cot_summary_display_override: template.paragen_cot_summary_display_override ?? "allow",
     force_parallel_switch: template.force_parallel_switch ?? "auto",
   };
+
+  // Keep opaque fields from a real browser capture (for example browser_context,
+  // turn_attribution, and local_function_names), but never reuse its thread.
+  delete payload.conversation_id;
+  delete payload.parent_message_id;
+  delete payload.messages;
+  delete payload.client_prepare_state;
 
   const conversationId = request.conversationId ?? request.conversation_id;
   const parentMessageId = request.parentMessageId ?? request.parent_message_id;
