@@ -1,0 +1,9 @@
+node_modules
+dist
+reference
+secrets
+outputs
+.git
+.env
+apps/bridge-console/node_modules
+apps/bridge-console/dist

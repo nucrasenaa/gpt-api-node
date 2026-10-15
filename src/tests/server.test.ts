@@ -3,6 +3,7 @@ import http from "node:http";
 import test from "node:test";
 import { loadConfig } from "../config.js";
 import { createBridgeServer } from "../server.js";
+import { ChatGPTWebProvider } from "../provider/chatgpt-web.js";
 
 async function withServer(run: (baseUrl: string) => Promise<void>): Promise<void> {
   const config = loadConfig({
@@ -39,7 +40,7 @@ test("models route exposes the compatibility model aliases", async () => {
     const response = await fetch(`${baseUrl}/v1/models`, { headers: { authorization: "Bearer test-key" } });
     assert.equal(response.status, 200);
     const body = await response.json() as { data: Array<{ id: string }> };
-    assert.deepEqual(body.data.map((item) => item.id), ["chatgpt-web/auto", "chatgpt-web"]);
+    assert.deepEqual(body.data.map((item) => item.id), ["chatgpt-web/auto", "chatgpt-web", "auto", "chatgpt-deep-research", "gpt-5-5", "gpt-5-5-thinking", "gpt-5-5-thinking-medium", "gpt-5-5-thinking-high", "gpt-5-5-thinking-xhigh", "gpt-5-5-pro", "gpt-5-5-pro-medium", "gpt-5-5-pro-high", "gpt-5-5-pro-xhigh"]);
   });
 });
 
@@ -80,6 +81,37 @@ test("chat facade converts provider SSE into an OpenAI-shaped response", async (
     assert.equal(body.conversation_id, "conv-test");
   } finally {
     await new Promise<void>((resolve, reject) => bridge.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test("provider refreshes web tokens before the conversation request", async () => {
+  const paths: string[] = [];
+  const upstream = http.createServer((req, res) => {
+    paths.push(req.url ?? "");
+    if (req.url?.endsWith("/conversation/prepare")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ conduit_token: "conduit-test" }));
+      return;
+    }
+    if (req.url?.endsWith("/sentinel/chat-requirements")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ token: "requirements-test" }));
+      return;
+    }
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.end(`data: ${JSON.stringify({ message: { content: { parts: ["refreshed"] } }, conversation_id: "conv-refresh" })}\n\ndata: [DONE]\n\n`);
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  const address = upstream.address();
+  assert.ok(address && typeof address !== "string");
+  try {
+    const provider = new ChatGPTWebProvider(loadConfig({ CHATGPT_ACCESS_TOKEN: "token", CHATGPT_BASE_URL: `http://127.0.0.1:${address.port}`, CHATGPT_WEB_TIMEOUT: "5000" }));
+    const chunks: string[] = [];
+    for await (const delta of provider.streamChat({ messages: [{ role: "user", content: "hello" }] })) chunks.push(delta.text);
+    assert.equal(chunks.join(""), "refreshed");
+    assert.deepEqual(paths, ["/backend-api/f/conversation/prepare", "/backend-api/sentinel/chat-requirements", "/backend-api/f/conversation"]);
+  } finally {
     await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
   }
 });

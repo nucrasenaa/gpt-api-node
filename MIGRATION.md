@@ -1,34 +1,27 @@
 # Migration notes
 
-`reference/` is the original Python project. The new implementation removes
-`apps/character-game` and keeps the Bridge Console as a separate Svelte static
-app.
+`reference/` is the original Python project. The Node implementation removes `apps/character-game` and keeps the Bridge Console as a separate Svelte app.
 
-## Port order
+## Ported
 
-1. Core provider types and error mapping.
-2. Account capture parser, HAR import, and `enc:v1:` Fernet compatibility.
+1. Native Node HTTP server and OpenAI-compatible chat facade.
+2. Request capture parsing, environment auth and encrypted `enc:v1:` account files.
 3. Filesystem artifacts and SQLite admin store.
-4. ChatGPT Web transport, token/proof refresh, and SSE normalization.
-5. Account routing, limits, failover, and operation cancellation.
-6. Public API routes: chat, image, vision, files, usage, operations.
-7. Admin routes used by the console.
-8. CLI commands and deployment packaging.
+4. ChatGPT Web payload/header shaping, SSE normalization, sentinel/prepare refresh and proof-of-work.
+5. Account discovery, failover, routing strategies and per-account concurrency.
+6. Chat, image generation/edit, vision, files, usage snapshot and operation routes.
+7. Console admin routes, opencode config management and CLI essentials.
+8. Shared-host and Docker deployment packaging.
 
-## Deliberate first milestone
+## Deliberate compatibility boundary
 
-The first Node milestone is intentionally small and independently testable:
+The upstream Python transport uses `curl_cffi` browser impersonation and a widget/WebSocket protocol for native Deep Research. Node uses the platform `fetch` implementation and exposes `chatgpt-deep-research` as a standard ChatGPT Web compatibility flow that saves a Markdown report. If a particular account or upstream rollout requires native widget Deep Research, keep the Python reference service for that feature or add a Node WebSocket transport behind the existing provider seam.
 
-- native Node HTTP server;
-- bearer authentication and CORS;
-- `/health`, `/v1/models`, and basic admin status/settings;
-- JSON/SSE chat response facade;
-- environment and plaintext copied-request auth loading;
-- root project build/test scripts;
-- console build kept separate from API build.
+## Verification
 
-The provider transport still needs compatibility work before it should be
-treated as production-ready. In particular, the Python reference uses browser-
-shaped HTTP behavior, sentinel/proof refresh, multiple account routing, image
-uploads, and Deep Research flows that cannot safely be assumed to work with a
-single generic `fetch` call.
+```sh
+npm test
+npm run build:all
+```
+
+The root build contains no Character Game source, ports, environment variables or deployment service.

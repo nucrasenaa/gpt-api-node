@@ -1,0 +1,13 @@
+services:
+  bridge-api:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - ./secrets:/app/secrets
+      - ./outputs:/app/outputs

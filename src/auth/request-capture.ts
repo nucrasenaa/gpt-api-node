@@ -1,7 +1,7 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import type { BridgeConfig } from "../config.js";
 import { ProviderNotConfiguredError } from "../errors.js";
+import { readCaptureFile } from "../storage/accounts.js";
 
 export interface Capture {
   url?: string;
@@ -31,14 +31,26 @@ const replayableHeaders = new Set([
   "oai-client-build-number",
   "oai-client-version",
   "oai-device-id",
+  "oai-echo-logs",
   "oai-language",
+  "oai-session-id",
+  "oai-telemetry",
+  "openai-sentinel-arkose-token",
   "openai-sentinel-chat-requirements-token",
   "openai-sentinel-proof-token",
   "openai-sentinel-turnstile-token",
   "origin",
+  "priority",
   "referer",
+  "sec-ch-ua",
+  "sec-ch-ua-mobile",
+  "sec-ch-ua-platform",
+  "sec-fetch-dest",
+  "sec-fetch-mode",
+  "sec-fetch-site",
   "user-agent",
   "x-conduit-token",
+  "x-oai-turn-trace-id",
   "x-openai-target-path",
   "x-openai-target-route",
 ]);
@@ -147,7 +159,7 @@ export async function loadAuth(config: BridgeConfig): Promise<AuthConfig> {
       : undefined;
   if (requestPath) {
     try {
-      capture = parseCapture(await fs.readFile(requestPath, "utf8"));
+      capture = parseCapture(readCaptureFile(requestPath, undefined));
       source = requestPath;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
