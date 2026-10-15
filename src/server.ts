@@ -374,7 +374,7 @@ function inspectCapture(text: string): Record<string, unknown> {
     checks.push({ name: "oai-session-id", level: "optional", ok: Boolean(capture.headers["oai-session-id"]), detail: capture.headers["oai-session-id"] ? "present" : "not present in this Safari capture" });
     const missing = checks.filter((check) => check.level === "required" && !check.ok).map((check) => check.name);
     const warnings = checks.filter((check) => check.level === "recommended" && !check.ok).map((check) => check.name);
-    return { ok: missing.length === 0, missing, warnings, detected: info.toRedactedDict(), capabilities: inferAccountCapabilities(info), checks, redacted_headers: Object.fromEntries(Object.keys(capture.headers).map((key) => [key, ["authorization", "cookie", "openai-sentinel-proof-token", "openai-sentinel-chat-requirements-token"].includes(key) ? "<redacted>" : capture.headers[key]])) };
+    return { ok: missing.length === 0, missing, warnings, detected: info.toRedactedDict(), capabilities: inferAccountCapabilities(info), checks, redacted_headers: Object.fromEntries(Object.keys(capture.headers).map((key) => [key, ["authorization", "cookie", "openai-sentinel-proof-token", "openai-sentinel-chat-requirements-token", "x-openai-sentinel-prepare-p"].includes(key) ? "<redacted>" : capture.headers[key]])) };
   } catch (error) {
     return { ok: false, missing: ["parse"], warnings: [], detected: {}, capabilities: {}, checks: [{ name: "parse", level: "required", ok: false, detail: error instanceof Error ? error.message : String(error) }] };
   }

@@ -20,7 +20,7 @@ const REPLAYABLE_HEADERS = new Set([
   "openai-sentinel-proof-token", "openai-sentinel-turnstile-token", "origin", "originator", "priority", "referer",
   "sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform", "sec-fetch-dest", "sec-fetch-mode", "sec-fetch-site",
   "user-agent", "x-conduit-token", "x-oai-mcp-form-version", "x-oai-turn-trace-id", "x-openai-codex-window-type",
-  "x-openai-target-path", "x-openai-target-route", "x-openai-web-frontend", "x-openai-web-sse-compression",
+  "x-openai-sentinel-prepare-p", "x-openai-target-path", "x-openai-target-route", "x-openai-web-frontend", "x-openai-web-sse-compression",
 ]);
 
 export function isReplayableRequestHeader(name: string): boolean {
@@ -49,11 +49,17 @@ export function messageToChatGPT(message: TransportMessage, idFactory: () => str
   const parts = stringParts(message.content);
   const hasMedia = parts.some((part) => typeof part === "object" && part !== null);
   return {
-    id: idFactory(),
-    author: { role: message.role },
+    author: { metadata: {}, name: null, role: message.role },
+    channel: null,
     create_time: now() / 1000,
+    end_turn: null,
+    id: idFactory(),
     content: { content_type: hasMedia ? "multimodal_text" : "text", parts },
-    metadata: { __internal: { search_settings: {} } },
+    metadata: {},
+    recipient: "all",
+    status: "finished_successfully",
+    update_time: null,
+    weight: 1,
   };
 }
 
@@ -94,20 +100,41 @@ export function buildChatGPTPayload(
   const idFactory: () => string = options.idFactory ?? (() => randomUUID());
   const now = options.now ?? Date.now;
   const action = request.action ?? "next";
+  const hasCapturedTemplate = Object.keys(template).length > 0;
   const payload: Record<string, unknown> = {
     ...template,
     action,
     model: request.model ?? (typeof template.model === "string" ? template.model : "auto"),
     timezone_offset_min: options.timezoneOffsetMinutes ?? timezone.timezone_offset_min,
     timezone: options.timezone ?? timezone.timezone,
-    conversation_mode: template.conversation_mode ?? { kind: "primary_assistant" },
-    system_hints: mergedSystemHints(template.system_hints, metadata.system_hints),
-    supports_buffering: template.supports_buffering ?? true,
-    supported_encodings: template.supported_encodings ?? ["v1"],
-    client_contextual_info: template.client_contextual_info ?? defaultClientContextualInfo(),
-    paragen_cot_summary_display_override: template.paragen_cot_summary_display_override ?? "allow",
-    force_parallel_switch: template.force_parallel_switch ?? "auto",
   };
+
+  // A real browser capture is the source of truth for the web endpoint. Do not
+  // add newer/older routing knobs to that opaque payload: some ChatGPT web
+  // deployments route the model from this exact shape. Keep defaults only for
+  // callers that do not have a browser capture at all.
+  if (!hasCapturedTemplate || Object.hasOwn(template, "conversation_mode")) {
+    payload.conversation_mode = template.conversation_mode ?? { kind: "primary_assistant" };
+  }
+  if (!hasCapturedTemplate || Object.hasOwn(template, "system_hints") || metadata.system_hints !== undefined) {
+    const hints = mergedSystemHints(template.system_hints, metadata.system_hints);
+    if (hints.length || Object.hasOwn(template, "system_hints") || metadata.system_hints !== undefined) payload.system_hints = hints;
+  }
+  if (!hasCapturedTemplate || Object.hasOwn(template, "supports_buffering")) {
+    payload.supports_buffering = template.supports_buffering ?? true;
+  }
+  if (!hasCapturedTemplate || Object.hasOwn(template, "supported_encodings")) {
+    payload.supported_encodings = template.supported_encodings ?? ["v1"];
+  }
+  if (!hasCapturedTemplate || Object.hasOwn(template, "client_contextual_info")) {
+    payload.client_contextual_info = template.client_contextual_info ?? defaultClientContextualInfo();
+  }
+  if (!hasCapturedTemplate || Object.hasOwn(template, "paragen_cot_summary_display_override")) {
+    payload.paragen_cot_summary_display_override = template.paragen_cot_summary_display_override ?? "allow";
+  }
+  if (!hasCapturedTemplate || Object.hasOwn(template, "force_parallel_switch")) {
+    payload.force_parallel_switch = template.force_parallel_switch ?? "auto";
+  }
 
   // Keep opaque fields from a real browser capture (for example browser_context,
   // turn_attribution, and local_function_names), but never reuse its thread.
@@ -149,34 +176,23 @@ const PREPARE_KEYS = new Set([
   "timezone_offset_min", "timezone", "variant_purpose", "conversation_mode", "system_hints",
   "supports_buffering", "supported_encodings", "thinking_effort", "client_contextual_info",
   "paragen_cot_summary_display_override", "force_parallel_switch", "enable_message_followups",
+  "client_prepare_dispatch", "client_prepare_source", "local_function_names", "is_do_not_remember",
 ]);
 
 export function prepareChatGPTPayload(payload: Record<string, unknown>): Record<string, unknown> {
   const prepared = Object.fromEntries(Object.entries(payload).filter(([key]) => PREPARE_KEYS.has(key)));
   if (payload.action === "next") {
-    prepared.client_prepare_state = "none";
-    const messages = payload.messages;
-    if (Array.isArray(messages)) {
-      for (let index = messages.length - 1; index >= 0; index -= 1) {
-        const message = messages[index];
-        if (!message || typeof message !== "object" || Array.isArray(message)) continue;
-        const author = (message as Record<string, unknown>).author;
-        if (author && typeof author === "object" && !Array.isArray(author) && (author as Record<string, unknown>).role === "user") {
-          prepared.partial_query = { ...(message as Record<string, unknown>) };
-          break;
-        }
-      }
-    }
+    prepared.client_prepare_state = "sent";
   }
   return prepared;
 }
 
 export function markPayloadSentAfterPrepare(payload: Record<string, unknown>): void {
-  if (payload.action === "next") payload.client_prepare_state = "sent";
+  if (payload.action === "next") payload.client_prepare_state = "success";
 }
 
 export function jsonHeadersForTokenRefresh(headers: ChatGPTRequestHeaders): ChatGPTRequestHeaders {
-  const blocked = new Set(["accept", "content-length", "x-oai-turn-trace-id", "x-openai-target-path", "x-openai-target-route"]);
+  const blocked = new Set(["accept", "content-length", "x-oai-turn-trace-id", "x-openai-sentinel-prepare-p", "x-openai-target-path", "x-openai-target-route"]);
   const refreshed = Object.fromEntries(Object.entries(headers).filter(([name]) => !blocked.has(name.toLowerCase()) && isReplayableRequestHeader(name)));
   return {
     ...refreshed,
@@ -189,10 +205,10 @@ export function jsonHeadersForTokenRefresh(headers: ChatGPTRequestHeaders): Chat
 }
 
 export function conversationHeaders(headers: ChatGPTRequestHeaders): ChatGPTRequestHeaders {
-  const blocked = new Set(["content-length", "host", "accept-encoding"]);
+  const blocked = new Set(["content-length", "host", "accept-encoding", "x-openai-sentinel-prepare-p"]);
   return {
     ...Object.fromEntries(Object.entries(headers).filter(([name]) => !blocked.has(name.toLowerCase()) && isReplayableRequestHeader(name))),
-    accept: "text/event-stream",
+    accept: headers.accept ?? "*/*",
     "content-type": "application/json",
   };
 }

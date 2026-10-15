@@ -91,7 +91,6 @@ export class ChatGPTWebProvider {
       metadata: { ...metadata, captured_request_json: this.auth?.capturedRequestJson, history_and_training_disabled: this.config.temporaryChat },
     };
     const payload = buildChatGPTPayload(transportRequest, { capturedRequestJson: this.auth?.capturedRequestJson, idFactory: randomUUID });
-    payload.parent_message_id = typeof request.parent_message_id === "string" ? request.parent_message_id : randomUUID();
     payload.messages = this.providerMessages(request.messages, uploadedFiles);
     payload.history_and_training_disabled = this.config.temporaryChat;
     if (request.tools !== undefined) payload.tools = request.tools;
@@ -222,15 +221,61 @@ export class ChatGPTWebProvider {
     if (!this.config.refreshWebTokens || Date.now() - this.refreshedAt < 5_000) return current;
     const endpoints = new ChatGPTEndpoints({ baseUrl: this.config.chatgptBaseUrl });
     const prepare = await this.fetchJson(endpoints.prepareUrl, { method: "POST", headers: jsonHeadersForTokenRefresh(current), body: JSON.stringify(prepareChatGPTPayload(payload)) }, options);
-    const refreshed: Record<string, string> = { ...current };
     const conduit = stringValue(prepare.conduit_token) ?? stringValue(prepare.token);
-    if (conduit) refreshed["x-conduit-token"] = conduit;
-    const requirements = await this.fetchJson(endpoints.requirementsUrl, { method: "POST", headers: jsonHeadersForTokenRefresh(current), body: JSON.stringify({ p: null }) }, options);
-    const requirementsToken = stringValue(requirements.token);
-    if (requirementsToken) refreshed["openai-sentinel-chat-requirements-token"] = requirementsToken;
+    if (conduit) this.auth!.headers["x-conduit-token"] = conduit;
+
+    // Sentinel has its own request contract. It does not accept the web
+    // conversation target headers or the previous sentinel tokens; the
+    // browser first prepares a challenge and then finalizes it.
+    const makeSentinelHeaders = (): Record<string, string> => {
+      const headers = jsonHeadersForTokenRefresh(this.authHeaders());
+      for (const name of [
+        "x-conduit-token", "x-openai-target-path", "x-openai-target-route",
+        "x-openai-sentinel-prepare-p",
+        "openai-sentinel-chat-requirements-token", "openai-sentinel-proof-token",
+        "openai-sentinel-turnstile-token",
+      ]) delete headers[name];
+      return headers;
+    };
+
+    const requirements = await this.fetchJson(
+      endpoints.requirementsUrl,
+      { method: "POST", headers: makeSentinelHeaders(), body: JSON.stringify({ p: current["x-openai-sentinel-prepare-p"] ?? null }) },
+      options,
+    );
     const challenge = record(requirements.proofofwork);
+    const userAgent = current["user-agent"] ?? this.config.userAgent;
+    const proof = challenge.required
+      ? generateProofToken(true, stringValue(challenge.seed) ?? "", stringValue(challenge.difficulty) ?? "", userAgent, decodeProofConfig(current["openai-sentinel-proof-token"]))
+      : undefined;
+    const prepareToken = stringValue(requirements.prepare_token) ?? stringValue(requirements.token);
+    const immediateToken = stringValue(requirements.token);
+    let finalized: Record<string, any> = {};
+    if (!immediateToken) {
+      const turnstile = stringValue(current["openai-sentinel-turnstile-token"]);
+      if (record(requirements.turnstile).required && !turnstile) {
+        throw new ProviderError("ChatGPT sentinel requires a fresh openai-sentinel-turnstile-token; capture a new browser request");
+      }
+      if (!prepareToken) throw new ProviderError("ChatGPT sentinel prepare response did not include a token");
+      finalized = await this.fetchJson(
+        `${endpoints.requirementsUrl}/finalize`,
+        {
+          method: "POST",
+          headers: makeSentinelHeaders(),
+          body: JSON.stringify({
+            prepare_token: prepareToken,
+            ...(proof ? { proofofwork: proof } : {}),
+            ...(turnstile ? { turnstile } : {}),
+          }),
+        },
+        options,
+      );
+    }
+
+    const refreshed: Record<string, string> = { ...this.authHeaders() };
+    const requirementsToken = immediateToken ?? stringValue(finalized.token) ?? prepareToken;
+    if (requirementsToken) refreshed["openai-sentinel-chat-requirements-token"] = requirementsToken;
     if (challenge.required) {
-      const proof = generateProofToken(true, stringValue(challenge.seed) ?? "", stringValue(challenge.difficulty) ?? "", this.config.userAgent, decodeProofConfig(current["openai-sentinel-proof-token"]));
       if (proof) refreshed["openai-sentinel-proof-token"] = proof;
     }
     this.auth!.headers = { ...this.auth!.headers, ...refreshed };
@@ -240,11 +285,31 @@ export class ChatGPTWebProvider {
 
   private async fetchJson(url: string, init: RequestInit, options: ProviderRequestOptions = {}): Promise<Record<string, any>> {
     const response = await this.fetchWithTimeout(url, init, options.signal);
+    this.captureSetCookies(response);
     const text = (await response.text()).slice(0, 4_000_000);
     let payload: unknown = {};
     try { payload = text ? JSON.parse(text) : {}; } catch { payload = {}; }
-    if (!response.ok) throw new ProviderError(`ChatGPT request failed: ${response.status} ${text.slice(0, 500)}`);
+    if (!response.ok) {
+      const path = (() => { try { return new URL(url).pathname; } catch { return url; } })();
+      throw new ProviderError(`ChatGPT request failed: ${path} ${response.status} ${text.slice(0, 500)}`);
+    }
     return payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, any> : {};
+  }
+
+  private captureSetCookies(response: Response): void {
+    const setCookies = typeof response.headers.getSetCookie === "function"
+      ? response.headers.getSetCookie()
+      : [];
+    if (!setCookies.length || !this.auth) return;
+    for (const setCookie of setCookies) {
+      const first = setCookie.split(";", 1)[0] ?? "";
+      const separator = first.indexOf("=");
+      if (separator <= 0) continue;
+      const name = first.slice(0, separator).trim();
+      const value = first.slice(separator + 1).trim().replace(/^"|"$/g, "");
+      if (name) this.auth.cookies[name] = value;
+    }
+    this.auth.headers.cookie = Object.entries(this.auth.cookies).map(([name, value]) => `${name}=${value}`).join("; ");
   }
 
   private async fetchWithTimeout(url: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {

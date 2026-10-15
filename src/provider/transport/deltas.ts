@@ -13,6 +13,8 @@ export function extractEventText(value: unknown, path?: unknown): string {
     if (typeof path === "string" && path && !path.startsWith("/message/content/parts")) return "";
     return value;
   }
+  const snapshot = record(value);
+  if (snapshot) return textFromMessageEvent(snapshot);
   if (!Array.isArray(value)) return "";
   return value.map((item) => {
     const part = record(item);
@@ -26,6 +28,8 @@ export const extractText = extractEventText;
 
 export function textFromMessageEvent(event: ProviderEvent): string {
   const message = record(event.message);
+  const author = record(message?.author);
+  if (typeof author?.role === "string" && author.role !== "assistant") return "";
   const content = record(message?.content);
   const parts = content?.parts;
   return Array.isArray(parts) ? parts.filter((part): part is string => typeof part === "string").join("") : "";

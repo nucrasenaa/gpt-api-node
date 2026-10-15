@@ -55,6 +55,7 @@ const replayableHeaders = new Set([
   "x-conduit-token",
   "x-oai-mcp-form-version",
   "x-oai-turn-trace-id",
+  "x-openai-sentinel-prepare-p",
   "x-openai-codex-window-type",
   "x-openai-web-frontend",
   "x-openai-web-sse-compression",

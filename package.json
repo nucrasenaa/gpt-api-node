@@ -1,11 +1,11 @@
 {
-  "name": "gpt-bridge-node",
+  "name": "gpt-api-node",
   "version": "0.1.0",
   "private": true,
-  "description": "Node.js rewrite of the ChatGPT Web bridge without the Character Game app",
+  "description": "OpenAI-compatible Node.js bridge for an authorized ChatGPT Web account",
   "type": "module",
   "bin": {
-    "gpt-bridge-node": "dist/cli.js"
+    "gpt-api-node": "dist/cli.js"
   },
   "engines": {
     "node": ">=22"

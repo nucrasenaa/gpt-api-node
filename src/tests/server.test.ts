@@ -96,9 +96,14 @@ test("provider refreshes web tokens before the conversation request", async () =
       res.end(JSON.stringify({ conduit_token: "conduit-test" }));
       return;
     }
-    if (req.url?.endsWith("/sentinel/chat-requirements")) {
+    if (req.url?.endsWith("/sentinel/chat-requirements/finalize")) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ token: "requirements-test" }));
+      return;
+    }
+    if (req.url?.endsWith("/sentinel/chat-requirements")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ prepare_token: "prepare-test", proofofwork: { required: false }, turnstile: { required: false } }));
       return;
     }
     res.writeHead(200, { "content-type": "text/event-stream" });
@@ -112,7 +117,7 @@ test("provider refreshes web tokens before the conversation request", async () =
     const chunks: string[] = [];
     for await (const delta of provider.streamChat({ messages: [{ role: "user", content: "hello" }] })) chunks.push(delta.text);
     assert.equal(chunks.join(""), "refreshed");
-    assert.deepEqual(paths, ["/backend-api/f/conversation/prepare", "/backend-api/sentinel/chat-requirements", "/backend-api/f/conversation"]);
+    assert.deepEqual(paths, ["/backend-api/f/conversation/prepare", "/backend-api/sentinel/chat-requirements", "/backend-api/sentinel/chat-requirements/finalize", "/backend-api/f/conversation"]);
   } finally {
     await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
   }

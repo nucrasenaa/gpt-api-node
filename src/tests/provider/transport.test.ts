@@ -62,6 +62,8 @@ test("normalized deltas support patches and cumulative message snapshots", () =>
   assert.deepEqual(eventToNormalizedDelta({ v: [{ p: "/message/content/parts/0", v: "hello" }, { p: "/message/status", v: "finished" }], conversation_id: "c1" }), {
     text: "hello", conversationId: "c1", raw: { v: [{ p: "/message/content/parts/0", v: "hello" }, { p: "/message/status", v: "finished" }], conversation_id: "c1" },
   });
+  assert.equal(eventToNormalizedDelta({ v: { message: { author: { role: "user" }, content: { parts: ["input"] } } } })?.text, "");
+  assert.equal(eventToNormalizedDelta({ v: { message: { content: { parts: ["snapshot text"] } }, conversation_id: "c2" } })?.text, "snapshot text");
   const state = createDeltaNormalizationState();
   assert.equal(normalizeEventDelta({ message: { content: { parts: ["hel"] } } }, state)?.text, "hel");
   assert.equal(normalizeEventDelta({ message: { content: { parts: ["hello"] } } }, state)?.text, "lo");
@@ -102,18 +104,18 @@ test("ChatGPT payload builder shapes provider-neutral messages without thread re
 test("prepare and header helpers match the ChatGPT protocol boundary", () => {
   const payload = buildChatGPTPayload({ messages: [{ role: "user", content: "hello" }] }, { idFactory: () => "message-1" });
   const prepared = prepareChatGPTPayload(payload);
-  assert.equal(prepared.client_prepare_state, "none");
-  assert.equal((prepared.partial_query as { id: string }).id, "message-1");
+  assert.equal(prepared.client_prepare_state, "sent");
+  assert.equal("partial_query" in prepared, false);
   assert.equal("messages" in prepared, false);
   markPayloadSentAfterPrepare(payload);
-  assert.equal(payload.client_prepare_state, "sent");
+  assert.equal(payload.client_prepare_state, "success");
 
   const refreshed = jsonHeadersForTokenRefresh({ accept: "text/event-stream", authorization: "Bearer token", "content-length": "10" });
   assert.equal(refreshed.accept, "*/*");
   assert.equal(refreshed["x-openai-target-path"], "/backend-api/f/conversation/prepare");
   assert.equal("content-length" in refreshed, false);
   const replay = conversationHeaders({ authorization: "Bearer token", host: "example", "accept-encoding": "gzip" });
-  assert.equal(replay.accept, "text/event-stream");
+  assert.equal(replay.accept, "*/*");
   assert.equal("host" in replay, false);
 });
 
