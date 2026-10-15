@@ -94,6 +94,43 @@ CHATGPT_ACCOUNTS=main,plus
 CHATGPT_ACCOUNT_STRATEGY=auto
 ```
 
+### Move an encrypted account to another machine
+
+An encrypted capture cannot be copied by itself. It is keyed by one of these
+two mechanisms:
+
+1. The generated key file `secrets/accounts/.master.key` (the default when no
+   passphrase is configured).
+2. `CHATGPT_SECRETS_PASSPHRASE` together with
+   `secrets/accounts/.master.salt` (when a passphrase is configured).
+
+Copy the account directory **and the matching key material** through a secure
+channel. Never commit either file or send them through public chat.
+
+The current local setup uses the first mechanism, so the minimum portable set
+is:
+
+```text
+secrets/accounts/.master.key
+secrets/accounts/<account-name>/chatgpt-request.txt
+```
+
+On Windows PowerShell, after copying those files into the checkout, make sure
+an old passphrase is not overriding the key file and verify the capture:
+
+```powershell
+Remove-Item Env:CHATGPT_SECRETS_PASSPHRASE -ErrorAction SilentlyContinue
+$env:CHATGPT_ACCOUNTS_DIR = "$PWD\secrets\accounts"
+npm run build
+node dist/cli.js secrets check
+```
+
+If the source was created with a passphrase instead, set the exact same
+`CHATGPT_SECRETS_PASSPHRASE` on the destination and copy
+`secrets/accounts/.master.salt`; the generated `.master.key` is not used in
+that mode. A new or different key/salt produces:
+`could not decrypt account capture`.
+
 ## API usage
 
 All protected routes use the API key configured by `CHATGPT_API_KEY`.
