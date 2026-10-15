@@ -54,7 +54,7 @@ async function commandServer(args: Args): Promise<void> {
   const server = createBridgeServer(config);
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(config.port, config.host, () => { console.log(`gpt-bridge-node listening on http://${config.host}:${config.port}`); resolve(); });
+    server.listen(config.port, config.host, () => { console.log(`gpt-api-node listening on http://${config.host}:${config.port}`); resolve(); });
   });
   await new Promise<void>((resolve) => {
     const stop = () => server.close(() => resolve());

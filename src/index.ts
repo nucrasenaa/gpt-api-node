@@ -5,7 +5,7 @@ const config = loadConfig();
 const server = createBridgeServer(config);
 
 server.listen(config.port, config.host, () => {
-  console.log(`gpt-bridge-node listening on http://${config.host}:${config.port}`);
+  console.log(`gpt-api-node listening on http://${config.host}:${config.port}`);
   console.log(`character-game=removed`);
 });
 
