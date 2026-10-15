@@ -62,8 +62,10 @@ test("chat facade converts provider SSE into an OpenAI-shaped response", async (
     HOST: "127.0.0.1",
     PORT: "8000",
     CHATGPT_API_KEY: "test-key",
+    CHATGPT_ACCOUNTS_DIR: "/tmp/gpt-bridge-node-test-chat-accounts",
     CHATGPT_ACCESS_TOKEN: "token-for-test",
     CHATGPT_BASE_URL: `http://127.0.0.1:${upstreamAddress.port}`,
+    CHATGPT_REFRESH_WEB_TOKENS: "false",
   });
   const bridge = createBridgeServer(config);
   await new Promise<void>((resolve) => bridge.listen(0, "127.0.0.1", resolve));

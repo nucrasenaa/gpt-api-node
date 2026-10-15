@@ -26,3 +26,26 @@ Request Data: {"action":"next"}`);
   assert.deepEqual(capture.cookies, { foo: "bar", baz: "qux" });
   assert.deepEqual(capture.requestJson, { action: "next" });
 });
+
+test("parseCapture preserves quoted Chrome headers and current ChatGPT routing headers", () => {
+  const capture = parseCapture(`curl --url 'https://chatgpt.com/backend-api/f/conversation' \\
+    -H 'chatgpt-account-id: account-123' \\
+    -H 'oai-did: device-123' \\
+    -H 'originator: Codex Browser' \\
+    -H 'sec-ch-ua: "Google Chrome";v="153", "Not_A Brand";v="8"' \\
+    -H 'x-oai-mcp-form-version: 2' \\
+    -H 'x-openai-codex-window-type: browser' \\
+    -H 'x-openai-web-frontend: codex_webview' \\
+    -H 'x-openai-web-sse-compression: gzip' \\
+    --data-raw '{"action":"next","messages":[]}'`);
+
+  assert.equal(capture.headers["chatgpt-account-id"], "account-123");
+  assert.equal(capture.headers["oai-did"], "device-123");
+  assert.equal(capture.headers.originator, "Codex Browser");
+  assert.equal(capture.headers["sec-ch-ua"], '"Google Chrome";v="153", "Not_A Brand";v="8"');
+  assert.equal(capture.headers["x-oai-mcp-form-version"], "2");
+  assert.equal(capture.headers["x-openai-codex-window-type"], "browser");
+  assert.equal(capture.headers["x-openai-web-frontend"], "codex_webview");
+  assert.equal(capture.headers["x-openai-web-sse-compression"], "gzip");
+  assert.deepEqual(capture.requestJson, { action: "next", messages: [] });
+});

@@ -14,12 +14,13 @@ export interface ChatGPTRequestHeaders {
 }
 
 const REPLAYABLE_HEADERS = new Set([
-  "accept", "accept-language", "authorization", "cache-control", "content-type", "cookie",
-  "oai-client-build-number", "oai-client-version", "oai-device-id", "oai-echo-logs", "oai-language",
+  "accept", "accept-language", "authorization", "cache-control", "chatgpt-account-id", "content-type", "cookie",
+  "oai-client-build-number", "oai-client-version", "oai-did", "oai-device-id", "oai-echo-logs", "oai-language",
   "oai-session-id", "oai-telemetry", "openai-sentinel-arkose-token", "openai-sentinel-chat-requirements-token",
-  "openai-sentinel-proof-token", "openai-sentinel-turnstile-token", "origin", "priority", "referer",
+  "openai-sentinel-proof-token", "openai-sentinel-turnstile-token", "origin", "originator", "priority", "referer",
   "sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform", "sec-fetch-dest", "sec-fetch-mode", "sec-fetch-site",
-  "user-agent", "x-conduit-token", "x-oai-turn-trace-id", "x-openai-target-path", "x-openai-target-route",
+  "user-agent", "x-conduit-token", "x-oai-mcp-form-version", "x-oai-turn-trace-id", "x-openai-codex-window-type",
+  "x-openai-target-path", "x-openai-target-route", "x-openai-web-frontend", "x-openai-web-sse-compression",
 ]);
 
 export function isReplayableRequestHeader(name: string): boolean {

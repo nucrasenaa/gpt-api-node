@@ -26,10 +26,12 @@ const replayableHeaders = new Set([
   "accept-language",
   "authorization",
   "cache-control",
+  "chatgpt-account-id",
   "content-type",
   "cookie",
   "oai-client-build-number",
   "oai-client-version",
+  "oai-did",
   "oai-device-id",
   "oai-echo-logs",
   "oai-language",
@@ -40,6 +42,7 @@ const replayableHeaders = new Set([
   "openai-sentinel-proof-token",
   "openai-sentinel-turnstile-token",
   "origin",
+  "originator",
   "priority",
   "referer",
   "sec-ch-ua",
@@ -50,7 +53,11 @@ const replayableHeaders = new Set([
   "sec-fetch-site",
   "user-agent",
   "x-conduit-token",
+  "x-oai-mcp-form-version",
   "x-oai-turn-trace-id",
+  "x-openai-codex-window-type",
+  "x-openai-web-frontend",
+  "x-openai-web-sse-compression",
   "x-openai-target-path",
   "x-openai-target-route",
 ]);
@@ -97,24 +104,98 @@ function findJsonObject(text: string): Record<string, unknown> | undefined {
   return undefined;
 }
 
-function parseCurl(text: string): Partial<Capture> {
-  const normalized = text.replace(/\\\r?\n/g, " ");
-  const url = normalized.match(/(?:^|\s|['"])(https?:\/\/[^\s'"\\]+)/)?.[1];
-  const headers: Record<string, string> = {};
-  const headerPattern = /(?:-H|--header)\s+['"]([^'"]+)['"]/g;
-  for (const match of normalized.matchAll(headerPattern)) {
-    const raw = match[1];
-    if (!raw) continue;
-    const separator = raw.indexOf(":");
-    if (separator <= 0) continue;
-    const name = raw.slice(0, separator).trim().toLowerCase();
-    if (!replayableHeaders.has(name)) continue;
-    headers[name] = raw.slice(separator + 1).trim();
+function shellTokens(text: string): string[] {
+  const tokens: string[] = [];
+  let token = "";
+  let quote: "'" | '"' | undefined;
+  let escaped = false;
+  const push = (): void => {
+    if (token) tokens.push(token);
+    token = "";
+  };
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+    if (char === undefined) continue;
+    if (escaped) {
+      token += char;
+      escaped = false;
+      continue;
+    }
+    if (quote === "'") {
+      if (char === "'") quote = undefined;
+      else token += char;
+      continue;
+    }
+    if (quote === '"') {
+      if (char === '"') quote = undefined;
+      else if (char === "\\" && typeof next === "string" && ["\\", '"', "$", "`"].includes(next)) {
+        token += next;
+        index += 1;
+      } else token += char;
+      continue;
+    }
+    if (char === "\\") {
+      if (next === "\n" || next === "\r") {
+        index += next === "\r" && text[index + 2] === "\n" ? 2 : 1;
+      } else escaped = true;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      push();
+      continue;
+    }
+    token += char;
   }
-  const cookieMatch = normalized.match(/(?:-b|--cookie)\s+['"]([^'"]+)['"]/);
-  if (cookieMatch?.[1]) headers.cookie = cookieMatch[1];
-  const dataMatch = normalized.match(/(?:-d|--data|--data-raw|--data-binary)\s+['"](.+)['"](?:\s|$)/);
-  const requestJson = dataMatch?.[1] ? findJsonObject(dataMatch[1]) : undefined;
+  if (escaped) token += "\\";
+  push();
+  return tokens;
+}
+
+function parseCurl(text: string): Partial<Capture> {
+  const tokens = shellTokens(text);
+  const curlIndex = tokens.findIndex((token) => token.toLowerCase() === "curl");
+  if (curlIndex < 0) return {};
+  const headers: Record<string, string> = {};
+  let url: string | undefined;
+  let requestJson: Record<string, unknown> | undefined;
+  for (let index = curlIndex + 1; index < tokens.length; index += 1) {
+    const option = tokens[index];
+    if (!option) continue;
+    const value = tokens[index + 1];
+    if ((option === "-H" || option === "--header") && value !== undefined) {
+      index += 1;
+      const raw = value;
+      if (!raw) continue;
+      const separator = raw.indexOf(":");
+      if (separator <= 0) continue;
+      const name = raw.slice(0, separator).trim().toLowerCase();
+      if (!replayableHeaders.has(name)) continue;
+      headers[name] = raw.slice(separator + 1).trim();
+      continue;
+    }
+    if ((option === "-b" || option === "--cookie") && value !== undefined) {
+      index += 1;
+      headers.cookie = value;
+      continue;
+    }
+    if (["-d", "--data", "--data-raw", "--data-binary"].includes(option) && value !== undefined) {
+      index += 1;
+      requestJson = findJsonObject(value);
+      continue;
+    }
+    if ((option === "--url" || option === "-u") && value !== undefined) {
+      index += 1;
+      url = value;
+      continue;
+    }
+    if (!option.startsWith("-") && /^https?:\/\//i.test(option) && !url) url = option;
+  }
   return { url, headers, requestJson };
 }
 
