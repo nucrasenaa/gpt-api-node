@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "7b4f25f513b641a37c98a47e2f5a3146242288b7",
-    "indexed_at": "2026-10-15T09:13:42Z",
+    "commit": "e4afac87c3001746feda622a9294abc3f1c3b322",
+    "indexed_at": "2026-10-15T09:16:26Z",
     "project": "Users-crase-OS-gpt-bridge-node",
-    "nodes": 542,
-    "edges": 1506,
-    "original_size": 2621440,
-    "compressed_size": 491132,
-    "compression_level": 9
+    "nodes": 555,
+    "edges": 1479,
+    "original_size": 3604480,
+    "compressed_size": 569043,
+    "compression_level": 3
 }
