@@ -15,9 +15,11 @@
   {:else}
     <div class="flex min-w-0 flex-wrap gap-2">
       <Badge tone={result.ok ? "ok" : "bad"}
-        >{result.ok && !(result.warnings ?? []).length
-          ? "all checks pass"
-          : "not safe to save"}</Badge
+        >{result.ok
+          ? (result.warnings ?? []).length
+            ? "required checks pass"
+            : "all required checks pass"
+          : "required checks fail"}</Badge
       >
       <Badge
         >{String(
@@ -31,9 +33,8 @@
       <div
         class="mt-3 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-3 text-sm text-amber-100"
       >
-        Fix every required and recommended item before saving. Save refuses to
-        write incomplete captures unless the API is explicitly called with
-        force.
+        Required fields must be present before saving. Recommended fields may
+        improve replay reliability; optional browser headers can be absent.
       </div>
     {/if}
     <div class="mt-3 grid min-w-0 gap-2">
