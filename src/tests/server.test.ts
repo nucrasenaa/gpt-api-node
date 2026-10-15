@@ -1,16 +1,22 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { loadConfig } from "../config.js";
 import { createBridgeServer } from "../server.js";
 import { ChatGPTWebProvider } from "../provider/chatgpt-web.js";
 
-async function withServer(run: (baseUrl: string) => Promise<void>): Promise<void> {
+async function withServer(run: (baseUrl: string) => Promise<void>, overrides: NodeJS.ProcessEnv = {}): Promise<void> {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "gpt-bridge-server-"));
   const config = loadConfig({
     HOST: "127.0.0.1",
     PORT: "8000",
     CHATGPT_API_KEY: "test-key",
-    CHATGPT_ACCOUNTS_DIR: "/tmp/gpt-bridge-node-test-accounts",
+    CHATGPT_ACCOUNTS_DIR: path.join(root, "accounts"),
+    CHATGPT_ADMIN_DB_PATH: path.join(root, "admin.sqlite"),
+    ...overrides,
   });
   const server = createBridgeServer(config);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -20,6 +26,7 @@ async function withServer(run: (baseUrl: string) => Promise<void>): Promise<void
     await run(`http://127.0.0.1:${address.port}`);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    fs.rmSync(root, { recursive: true, force: true });
   }
 }
 
@@ -42,6 +49,62 @@ test("models route exposes the compatibility model aliases", async () => {
     const body = await response.json() as { data: Array<{ id: string }> };
     assert.deepEqual(body.data.map((item) => item.id), ["chatgpt-web/auto", "chatgpt-web", "auto", "chatgpt-deep-research", "gpt-5-5", "gpt-5-5-thinking", "gpt-5-5-thinking-medium", "gpt-5-5-thinking-high", "gpt-5-5-thinking-xhigh", "gpt-5-5-pro", "gpt-5-5-pro-medium", "gpt-5-5-pro-high", "gpt-5-5-pro-xhigh"]);
   });
+});
+
+test("admin settings survive a save and are returned by status", async () => {
+  await withServer(async (baseUrl) => {
+    const headers = { authorization: "Bearer test-key", "content-type": "application/json" };
+    const settings = { concurrency: { chat: { plans: { free: 7 }, accounts: {} } } };
+    const saved = await fetch(`${baseUrl}/v1/chatgpt/admin/settings/save`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ settings }),
+    });
+    assert.equal(saved.status, 200);
+    assert.deepEqual((await saved.json() as { settings: unknown }).settings, settings);
+
+    const stored = await fetch(`${baseUrl}/v1/chatgpt/admin/settings`, { headers });
+    assert.deepEqual((await stored.json() as { settings: unknown }).settings, settings);
+    const status = await fetch(`${baseUrl}/v1/chatgpt/admin/status`, { headers });
+    assert.deepEqual((await status.json() as { settings: unknown }).settings, settings);
+  });
+});
+
+test("deleted account captures disappear from the admin account list", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "gpt-bridge-delete-"));
+  const accountsDir = path.join(root, "accounts");
+  for (const account of ["main", "plus-work"]) {
+    const accountDir = path.join(accountsDir, account);
+    fs.mkdirSync(accountDir, { recursive: true });
+    fs.writeFileSync(path.join(accountDir, "chatgpt-request.txt"), "URL: https://chatgpt.com\\n");
+  }
+  try {
+    await withServer(async (baseUrl) => {
+      const headers = { authorization: "Bearer test-key", "content-type": "application/json" };
+      const list = async () => {
+        const response = await fetch(`${baseUrl}/v1/chatgpt/admin/accounts`, { headers });
+        return (await response.json() as { accounts: Array<{ account: string }> }).accounts.map((item) => item.account);
+      };
+      assert.deepEqual(await list(), ["main", "plus-work"]);
+
+      const deleted = await fetch(`${baseUrl}/v1/chatgpt/admin/accounts/delete`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ account: "main", delete_capture: true, delete_settings: true }),
+      });
+      assert.equal(deleted.status, 200);
+      assert.deepEqual(await list(), ["plus-work"]);
+
+      await fetch(`${baseUrl}/v1/chatgpt/admin/accounts/delete`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ account: "plus-work", delete_capture: true, delete_settings: true }),
+      });
+      assert.deepEqual(await list(), []);
+    }, { CHATGPT_ACCOUNTS_DIR: accountsDir, CHATGPT_ACCOUNTS: "main,plus-work" });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("chat facade converts provider SSE into an OpenAI-shaped response", async () => {

@@ -349,6 +349,7 @@ function adminStatus(config: BridgeConfig, store: BridgeAdminStore): Record<stri
   return {
     object: "chatgpt.admin.status",
     ok: true,
+    settings: store.getSetting("bridge", {}),
     server: { host: config.host, port: config.port, public_base_url: config.publicBaseUrl, api_key_required: Boolean(config.apiKey), auth_mode: config.apiKey ? "bearer" : "none", console_url: config.consoleUrl },
     routing: { account: config.account ?? null, accounts: runtimeAccountNames(config), account_strategy: config.accountStrategy, model_fallback: config.modelFallback ?? "none", temporary_chat: config.temporaryChat, character_game: "removed" },
     storage: { admin_db_path: store.path, image_output_dir: config.imageOutputDir, research_output_dir: config.researchOutputDir, artifact_count: store.artifactCount() },
@@ -487,7 +488,14 @@ async function handleAdminPost(pathname: string, body: Record<string, unknown>, 
     return { object: "chatgpt.admin.capture_save", ok: true, account, capture_path: target, encrypted: Boolean(key), inspection };
   }
   if (pathname === "/v1/chatgpt/admin/accounts/check") return checkAccounts(config, body);
-  if (pathname === "/v1/chatgpt/admin/accounts") return { object: "chatgpt.admin.accounts", accounts: discoverAccounts({ accountsDir: config.accountsDir, accounts: config.accounts.length ? config.accounts : undefined, includeInvalidCaptures: true }).map((item) => ({ account: item.name, configured: runtimeAccountNames(config).includes(item.name), capture_exists: item.exists, settings_exists: item.hasSettings, capture_path: item.capturePath, settings_path: item.settingsPath, info: item.info?.toRedactedDict?.() ?? null, capabilities: item.capabilities ?? null, error: item.error ?? null })) };
+  if (pathname === "/v1/chatgpt/admin/accounts") {
+    const accounts = discoverAccounts({ accountsDir: config.accountsDir, accounts: config.accounts.length ? config.accounts : undefined, includeInvalidCaptures: true })
+      // A configured name without either local file is only a stale environment
+      // entry. Do not keep showing it after the account was deleted.
+      .filter((item) => item.exists || item.hasSettings)
+      .map((item) => ({ account: item.name, configured: runtimeAccountNames(config).includes(item.name), capture_exists: item.exists, settings_exists: item.hasSettings, capture_path: item.capturePath, settings_path: item.settingsPath, info: item.info?.toRedactedDict?.() ?? null, capabilities: item.capabilities ?? null, error: item.error ?? null }));
+    return { object: "chatgpt.admin.accounts", accounts };
+  }
   if (pathname === "/v1/chatgpt/admin/accounts/delete") {
     const account = validateAccountName(stringValue(body.account) ?? "");
     const capture = resolveAccountCapturePath(account, config.accountsDir);

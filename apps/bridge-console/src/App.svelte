@@ -14,6 +14,7 @@
 
   const DEFAULT_API_KEY = "local-dev-key";
   const DEFAULT_BASE_URL = "http://127.0.0.1:8000/v1";
+  const CONSOLE_LAUNCH_SETTINGS_KEY = "chatgpt.console.launchSettings";
   const LOCAL_API_HOST = "127.0.0.1";
   const LOCAL_API_PORT = "8000";
   const ACCOUNT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -856,6 +857,7 @@
     baseUrl =
       localStorage.getItem("chatgpt.console.baseUrl") || DEFAULT_BASE_URL;
     apiKey = localStorage.getItem("chatgpt.console.apiKey") ?? DEFAULT_API_KEY;
+    restoreLaunchSettings();
     const hash = location.hash.replace("#", "");
     if (pages.some(([id]) => id === hash)) page = hash;
     const onHashChange = () => {
@@ -879,7 +881,7 @@
     window.addEventListener("hashchange", onHashChange);
     window.addEventListener("chatgpt-console-toast", onToast);
     window.addEventListener("keydown", onKeyDown);
-    void refreshAll();
+    void refreshAll().finally(restoreLaunchSettings);
     return () => {
       window.removeEventListener("hashchange", onHashChange);
       window.removeEventListener("chatgpt-console-toast", onToast);
@@ -1007,7 +1009,9 @@
 
   async function loadAccounts() {
     const payload = await apiFetch("/chatgpt/admin/accounts");
-    accounts = payload.accounts ?? [];
+    accounts = (payload.accounts ?? []).filter(
+      (account: AccountRow) => account.capture_exists || account.settings_exists,
+    );
   }
 
   async function loadModels() {
@@ -1327,7 +1331,66 @@
       baseUrl || DEFAULT_BASE_URL,
     );
     localStorage.setItem("chatgpt.console.apiKey", apiKey);
-    showToast("Saved console connection");
+    persistLaunchSettings();
+    showToast("Saved console target and launch settings");
+  }
+
+  function launchSettingsPayload() {
+    return {
+      serverHost,
+      serverPort,
+      serverKey,
+      serverAccount,
+      serverAccounts,
+      serverStrategy,
+      serverPublicBase,
+      imageOutputDir,
+      researchOutputDir,
+      adminDbPath,
+      webTimeout,
+      agentMode,
+      modelFallback,
+      temporaryChat,
+      selectedPreset,
+    };
+  }
+
+  function restoreLaunchSettings() {
+    const raw = localStorage.getItem(CONSOLE_LAUNCH_SETTINGS_KEY);
+    if (!raw) return;
+    try {
+      const saved = JSON.parse(raw) as Json;
+      if (!saved || typeof saved !== "object" || Array.isArray(saved)) return;
+      if (typeof saved.serverHost === "string") serverHost = saved.serverHost;
+      if (typeof saved.serverPort === "string") serverPort = saved.serverPort;
+      if (typeof saved.serverKey === "string") serverKey = saved.serverKey;
+      if (typeof saved.serverAccount === "string") serverAccount = saved.serverAccount;
+      if (typeof saved.serverAccounts === "string") serverAccounts = saved.serverAccounts;
+      if (typeof saved.serverStrategy === "string") serverStrategy = saved.serverStrategy;
+      if (typeof saved.serverPublicBase === "string") serverPublicBase = saved.serverPublicBase;
+      if (typeof saved.imageOutputDir === "string") imageOutputDir = saved.imageOutputDir;
+      if (typeof saved.researchOutputDir === "string") researchOutputDir = saved.researchOutputDir;
+      if (typeof saved.adminDbPath === "string") adminDbPath = saved.adminDbPath;
+      if (typeof saved.webTimeout === "string") webTimeout = saved.webTimeout;
+      if (typeof saved.agentMode === "string") agentMode = saved.agentMode;
+      if (typeof saved.modelFallback === "string") modelFallback = saved.modelFallback;
+      if (typeof saved.selectedPreset === "string") selectedPreset = saved.selectedPreset;
+      if (typeof saved.temporaryChat === "boolean") temporaryChat = saved.temporaryChat;
+    } catch {
+      localStorage.removeItem(CONSOLE_LAUNCH_SETTINGS_KEY);
+    }
+  }
+
+  function persistLaunchSettings() {
+    localStorage.setItem(
+      CONSOLE_LAUNCH_SETTINGS_KEY,
+      JSON.stringify(launchSettingsPayload()),
+    );
+  }
+
+  function saveLaunchSettings() {
+    persistLaunchSettings();
+    showToast("Saved launch settings");
   }
 
   function cloneJson<T>(value: T): T {
@@ -4314,7 +4377,15 @@
           </article>
 
           <article class="rounded-3xl border border-white/10 bg-[#0b0d12] p-5">
-            <PanelTitle kicker="launch" title="Server launch presets" />
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <PanelTitle kicker="launch" title="Server launch presets" />
+              <button
+                class="rounded-2xl bg-sky-300 px-4 py-3 font-black text-slate-950"
+                onclick={saveLaunchSettings}
+              >
+                Save launch settings
+              </button>
+            </div>
             <p class="text-sm text-slate-400">
               Pick a preset to fill the command fields. The API server and this
               console are separate processes; run both terminals when developing
